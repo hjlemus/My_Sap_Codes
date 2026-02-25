@@ -17,6 +17,8 @@ This ABAP utility simplifies mass data uploads by integrating directly with Tran
 2. **Download:** Run this program to export the required structure to Excel.
 3. **Fill:** Populate the Excel file with your data.
 4. **Upload & Process:** Use the program to upload the file; it will trigger the Batch Input.
+### ZSD_SHDB: Dynamic Batch Input Tool
+![Captura SHDB](assets/zsd_shdb.jpg)
 
 ---
 ## ZMM_INVENTORY_SITUATION: Advanced Stock & Profitability Analyzer
@@ -32,5 +34,8 @@ A comprehensive inventory management tool designed to provide a real-time 360° 
 * **Profitability Analysis:** Automatically calculates **Theoretical Profit** based on the gap between total cost and potential sales revenue.
 ### Business Value
 This report serves as a decision-making dashboard for Warehouse Managers and Controllers, allowing them to identify stock-outs before they happen and understand the financial impact of their current inventory.
+### ZMM_INVENTORY_SITUATION: Advanced Stock analyzer
+![Pantalla Principal](assets/inventsitu0.png)
+![Resultado del Reporte](assets/inventsitu1.png)
 
 ---
