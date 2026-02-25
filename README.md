@@ -34,8 +34,26 @@ A comprehensive inventory management tool designed to provide a real-time 360° 
 * **Profitability Analysis:** Automatically calculates **Theoretical Profit** based on the gap between total cost and potential sales revenue.
 ### Business Value
 This report serves as a decision-making dashboard for Warehouse Managers and Controllers, allowing them to identify stock-outs before they happen and understand the financial impact of their current inventory.
-### ZMM_INVENTORY_SITUATION: Advanced Stock analyzer
-![Pantalla Principal](assets/inventsitu0.png)
-![Resultado del Reporte](assets/inventsitu1.png)
+### 🛠 Technologies & Technical Skills
+This repository demonstrates advanced ABAP programming techniques:
+* **Object-Oriented ALV:** Implemented using the modern `CL_SALV_TABLE` class for dynamic and interactive reporting.
+* **SAP Business API (BAPI):** Integration with standard BAPIs (like `BAPI_MATERIAL_STOCK_REQ_LIST`) for accurate, real-time stock and requirement calculations.
+* **Advanced SQL Performance:** Optimized data fetching using `INNER JOINS`, `LEFT OUTER JOINS`, and `FOR ALL ENTRIES` to ensure high performance even with large datasets.
+* **Complex Data Structures:** Efficient use of `Internal Tables` (Standard and Hashed) and `Field Symbols` for memory-efficient data processing.
+### 📂 Documentation (Functional & Technical)
+You can find the full analysis of these developments in the [docs/](./docs) folder:
+* **Functional Specifications:** Business requirements, logic flow, and user impact analysis.
+* **Technical Specifications:** Detailed data mapping, table structures, and logic implementation details.
+### 📸 Visual Demo
+<p align="center">
+  <img src="assets/inventsitu0.png" width="800" alt="Selection Screen">
+  <br>
+  <i>Selection Screen with dynamic filters and valuation parameters.</i>
+</p>
+<p align="center">
+  <img src="assets/inventsitu1.png" width="800" alt="ALV Report">
+  <br>
+  <i>Final ALV Output showing real-time stock availability and profitability analysis.</i>
+</p>
 
 ---
