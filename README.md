@@ -37,9 +37,8 @@ This report serves as a decision-making dashboard for Warehouse Managers and Con
 ### 🛠 Technologies & Technical Skills
 This repository demonstrates advanced ABAP programming techniques:
 * **Object-Oriented ALV:** Implemented using the modern `CL_SALV_TABLE` class for dynamic and interactive reporting.
-* **SAP Business API (BAPI):** Integration with standard BAPIs (like `BAPI_MATERIAL_STOCK_REQ_LIST`) for accurate, real-time stock and requirement calculations.
 * **Advanced SQL Performance:** Optimized data fetching using `INNER JOINS`, `LEFT OUTER JOINS`, and `FOR ALL ENTRIES` to ensure high performance even with large datasets.
-* **Complex Data Structures:** Efficient use of `Internal Tables` (Standard and Hashed) and `Field Symbols` for memory-efficient data processing.
+* **Complex Data Structures:** Efficient use of `Internal Tables`and `Field Symbols` for memory-efficient data processing.
 ### 📂 Documentation (Functional & Technical)
 You can find the full analysis of these developments in the [docs/](./docs) folder:
 * **Functional Specifications:** Business requirements, logic flow, and user impact analysis.
