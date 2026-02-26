@@ -471,314 +471,312 @@ ENDFORM.
 *---------------------------------------------------------------------*
 FORM get_mrp_data .
 
-  DATA: lv_idx     TYPE sy-tabix,
-        lv_um_bapi TYPE meins,
-        lv_knumh   TYPE knumh,
-        lv_kbetr   TYPE kbetr,
-        ls_konp    TYPE konp.
+  "---------------------------------------------------------
+  " Tipos auxiliares
+  "---------------------------------------------------------
+  TYPES: BEGIN OF ty_po_raw,
+           matnr TYPE matnr,
+           lgort TYPE lgort_d,
+           meins TYPE meins,
+           menge TYPE eket-menge,
+           wemng TYPE eket-wemng,
+           glmng TYPE eket-glmng,
+         END OF ty_po_raw.
 
-  " Si prefieres trabajar con una tabla separada:
-  " CLEAR gt_out. gt_out = gt_out_base.
+  TYPES: BEGIN OF ty_sto_raw,
+           matnr TYPE matnr,
+           meins TYPE meins,
+           menge TYPE eket-menge,
+           glmng TYPE eket-glmng,
+         END OF ty_sto_raw.
 
-  LOOP AT gt_out_base ASSIGNING FIELD-SYMBOL(<ls_out>).
-    lv_idx = sy-tabix.
+  TYPES: BEGIN OF ty_deliv,
+           matnr     TYPE matnr,
+           lgort     TYPE lgort_d,
+           deliv_qty TYPE menge_d,
+         END OF ty_deliv.
 
-*    CLEAR: gs_mrp_detail, gt_mrp_items, gt_mrp_ind_lines, gt_mrp_total_lines, gt_return[].
+  TYPES: BEGIN OF ty_so,
+           matnr  TYPE matnr,
+           so_qty TYPE menge_d,
+         END OF ty_so.
 
-    "-----------------------------------------------------------------*
-    " 1) Llamar la BAPI por cada Material–Centro
-    "-----------------------------------------------------------------*
-*    CALL FUNCTION 'BAPI_MATERIAL_STOCK_REQ_LIST'
-*      EXPORTING
-*        material_long    = <ls_out>-matnr
-*        plant            = p_werks
-*        mrp_area         = gv_mrp_area
-*        plan_scenario    = '000'
-*       get_item_details = 'X'
-*       ignore_buffer    = ' '         " si quieres forzar datos "frescos", poner 'X'
-*      IMPORTING
-*        mrp_stock_detail = gs_mrp_detail
-*        return           = gs_return.
-*      TABLES
-*        mrp_items             = gt_mrp_items
-*        mrp_ind_lines         = gt_mrp_ind_lines
-*        mrp_total_lines       = gt_mrp_total_lines
+  TYPES: BEGIN OF ty_price,
+           matnr TYPE matnr,
+           vrkme TYPE meins,
+           kbetr TYPE kbetr,
+         END OF ty_price.
 
+  TYPES: BEGIN OF ty_uom,
+           matnr TYPE matnr,
+           meinh TYPE meins,
+           umrez TYPE marm-umrez,
+           umren TYPE marm-umren,
+         END OF ty_uom.
 
-    " Manejo básico de errores BAPI
-*    READ TABLE gt_return WITH KEY type = 'E' TRANSPORTING NO FIELDS.
-*    IF sy-subrc = 0.
-*      " Si hay error, dejar buckets en 0 y continuar con el siguiente
-*      <ls_out>-po_qty    = 0.
-*      <ls_out>-sto_qty   = 0.
-*      <ls_out>-so_qty    = 0.
-*      <ls_out>-deliv_qty = 0.
-*      <ls_out>-qty_avail = <ls_out>-qty_on_hand. " sin restar deliveries
-*      CONTINUE.
-*    ENDIF.
+  TYPES: BEGIN OF ty_tvkol,
+           vstel TYPE tvkol-vstel,
+           werks TYPE tvkol-werks,
+           raube TYPE tvkol-raube,
+           lgort TYPE tvkol-lgort,
+         END OF ty_tvkol.
 
-    "-----------------------------------------------------------------*
-    " 3) Mapeo directo: MRP_STOCK_DETAIL → Buckets
-    "-----------------------------------------------------------------*
-    DATA(lv_po)   = CONV menge_d( 0 ).
-    DATA(lv_sto)  = CONV menge_d( 0 ).
-    DATA(lv_so)   = CONV menge_d( 0 ).
-    DATA(lv_dlv)  = CONV menge_d( 0 ).
+  "---------------------------------------------------------
+  " Buffers
+  "---------------------------------------------------------
+  DATA: lt_po_raw  TYPE STANDARD TABLE OF ty_po_raw,
+        lt_sto_raw TYPE STANDARD TABLE OF ty_sto_raw,
+        lt_deliv   TYPE HASHED TABLE   OF ty_deliv  WITH UNIQUE KEY matnr lgort,
+        lt_so      TYPE HASHED TABLE   OF ty_so     WITH UNIQUE KEY matnr,
+        lt_price   TYPE HASHED TABLE   OF ty_price  WITH UNIQUE KEY matnr vrkme,
+        lt_uom     TYPE HASHED TABLE   OF ty_uom    WITH UNIQUE KEY matnr meinh,
+        lt_tvkol   TYPE HASHED TABLE   OF ty_tvkol  WITH UNIQUE KEY vstel werks raube.
 
+  "---------------------------------------------------------
+  " Lista de claves
+  "---------------------------------------------------------
+  DATA: lr_matnrs     TYPE RANGE OF matnr,
+        lr_lgorts     TYPE RANGE OF lgort_d,
+        lr_base_units TYPE RANGE OF meins,
+        lr_raubes     TYPE RANGE OF raube.
 
-    " Calculo de PO pendientes por recibir (excl. STO si tu sistema los separa)
+  FIELD-SYMBOLS <ls_out> TYPE ty_out.
 
-    DATA: lv_total_open TYPE mard-labst,
-          lv_open_po    TYPE eket-menge,
-          lv_open_meins TYPE mard-labst.
+  LOOP AT gt_out_base ASSIGNING <ls_out>.
+    APPEND VALUE #( sign = 'I' option = 'EQ' low = <ls_out>-matnr ) TO lr_matnrs.
+    APPEND VALUE #( sign = 'I' option = 'EQ' low = <ls_out>-lgort ) TO lr_lgorts.
+    APPEND VALUE #( sign = 'I' option = 'EQ' low = <ls_out>-base_unit ) TO lr_base_units.
+    APPEND VALUE #( sign = 'I' option = 'EQ' low = <ls_out>-raube ) TO lr_raubes.
+  ENDLOOP.
 
-    CLEAR: lv_open_po, lv_open_meins, lv_total_open, lv_po.
+  SORT lr_matnrs BY low.
+  DELETE ADJACENT DUPLICATES FROM lr_matnrs COMPARING low.
 
-    SELECT
-          ekko~ebeln,
-          ekpo~ebelp,
-          ekpo~meins,
-          eket~menge,
-          eket~wemng,
-          eket~glmng
-      FROM ekko
-      INNER JOIN ekpo
-         ON ekpo~ebeln = ekko~ebeln
-      INNER JOIN eket
-         ON eket~ebeln = ekpo~ebeln
-        AND eket~ebelp = ekpo~ebelp
-      INTO TABLE @DATA(lt_ekpo_rows)
-      WHERE ekko~bstyp = 'F'                      " Pedido de compra
-        AND ekko~bsart IN ( 'ZIMP', 'ZMER' )      " Solo tipos requeridos
-        AND ekko~loekz = @space                   " (opcional) cabecera no borrada
-        AND ekpo~loekz = @space                   " posición no borrada
-        AND ekpo~elikz = @space                   " sin entrega completa
-        AND ekpo~matnr = @<ls_out>-matnr
-        AND ekpo~werks = @p_werks                 " destino real por línea
-        AND ekpo~lgort = @<ls_out>-lgort
-        AND eket~menge > eket~wemng.              " con pendiente (>0)
+  SORT lr_lgorts BY low.
+  DELETE ADJACENT DUPLICATES FROM lr_lgorts COMPARING low.
 
-    IF sy-subrc <> 0.
-      lv_po = 0.
-    ELSE.
-      "-------------------------------
-      " Sumar can PO pendiente en MEINS
-      "-------------------------------
-      LOOP AT lt_ekpo_rows ASSIGNING FIELD-SYMBOL(<r>).
-        lv_open_po = <r>-menge - <r>-wemng.
-        IF lv_open_po <= 0.
-          CONTINUE.
+  SORT lr_base_units BY low.
+  DELETE ADJACENT DUPLICATES FROM lr_base_units COMPARING low.
+
+  SORT lr_raubes BY low.
+  DELETE ADJACENT DUPLICATES FROM lr_raubes COMPARING low.
+
+  "---------------------------------------------------------
+  " 1) Precarga PO abiertas
+  "---------------------------------------------------------
+  SELECT ekpo~matnr,
+         ekpo~lgort,
+         ekpo~meins,
+         eket~menge,
+         eket~wemng,
+         eket~glmng
+    FROM ekko
+    JOIN ekpo ON ekpo~ebeln = ekko~ebeln
+    JOIN eket ON eket~ebeln = ekpo~ebeln
+             AND eket~ebelp = ekpo~ebelp
+   WHERE ekko~bstyp = 'F'
+     AND ekko~bsart IN ('ZIMP','ZMER')
+     AND ekko~loekz = ''
+     AND ekpo~loekz = ''
+     AND ekpo~elikz = ''
+     AND ekpo~matnr IN @lr_matnrs
+     AND ekpo~werks = @p_werks
+     AND ekpo~lgort IN @lr_lgorts
+     AND eket~menge > eket~wemng
+   INTO TABLE @lt_po_raw.
+
+  "---------------------------------------------------------
+  " 2) Precarga STO abiertas
+  "---------------------------------------------------------
+  SELECT ekpo~matnr,
+         ekpo~meins,
+         eket~menge,
+         eket~glmng
+    FROM ekko
+    JOIN ekpo ON ekpo~ebeln = ekko~ebeln
+    JOIN eket ON eket~ebeln = ekpo~ebeln
+             AND eket~ebelp = ekpo~ebelp
+   WHERE ekko~bstyp = 'F'
+     AND ekko~bsakz = 'T'
+     AND ekko~reswk = @p_werks
+     AND ekpo~matnr IN @lr_matnrs
+     AND ekpo~loekz = ''
+     AND eket~menge > eket~glmng
+   INTO TABLE @lt_sto_raw.
+
+  "---------------------------------------------------------
+  " 3) Precarga entregas LIPS
+  "---------------------------------------------------------
+  SELECT matnr,
+         lgort,
+         SUM( lgmng ) AS deliv_qty
+    FROM lips
+   WHERE matnr IN @lr_matnrs
+     AND lgort IN @lr_lgorts
+     AND wbsta = 'A'
+   GROUP BY matnr, lgort
+   INTO TABLE @lt_deliv.
+
+  "---------------------------------------------------------
+  " 4) Precarga SO abiertas
+  "---------------------------------------------------------
+  SELECT a~matnr,
+         SUM( v~ordqty_bu ) AS so_qty
+    FROM vbap AS a
+    JOIN vbep AS v
+      ON v~vbeln = a~vbeln
+     AND v~posnr = a~posnr
+   WHERE a~matnr IN @lr_matnrs
+     AND a~werks = @p_werks
+     AND a~lfsta IN ('A','B')
+   GROUP BY a~matnr
+   INTO TABLE @lt_so.
+
+  "---------------------------------------------------------
+  " 5) Precarga precios VKP0
+  "---------------------------------------------------------
+  SELECT a~matnr,
+         a~vrkme,
+         k~kbetr
+    FROM a073 AS a
+    JOIN konp AS k
+      ON k~knumh = a~knumh
+     AND k~kappl = 'V'
+     AND k~kschl = 'VKP0'
+     AND k~loevm_ko = ''
+   WHERE a~kappl = 'V'
+     AND a~kschl = 'VKP0'
+     AND a~vkorg = @p_vkorg
+     AND a~vtweg = @p_vtweg
+     AND a~matnr IN @lr_matnrs
+     AND a~vrkme IN @lr_base_units
+     AND a~datab <= @p_prdat
+     AND a~datbi >= @p_prdat
+   INTO TABLE @lt_price.
+
+  "---------------------------------------------------------
+  " 6) Precarga conversiones MARM
+  "---------------------------------------------------------
+  SELECT matnr,
+         meinh,
+         umrez,
+         umren
+    FROM marm
+   WHERE matnr IN @lr_matnrs
+     AND meinh IN @lr_base_units
+   INTO TABLE @lt_uom.
+
+  "---------------------------------------------------------
+  " 7) Precarga conversiones TVKOL para el Alm Picking
+  "---------------------------------------------------------
+  SELECT vstel
+         werks
+         raube
+         lgort
+    FROM tvkol
+    INTO TABLE lt_tvkol
+    WHERE vstel = p_werks
+      AND werks = p_werks.
+
+  "=========================================================
+  " LOOP PRINCIPAL — puro memory lookup (rápido)
+  "=========================================================
+  LOOP AT gt_out_base ASSIGNING <ls_out>.
+
+    CLEAR: <ls_out>-po_qty,
+           <ls_out>-sto_qty,
+           <ls_out>-so_qty,
+           <ls_out>-deliv_qty,
+           <ls_out>-reg_price.
+
+    "---------------------------
+    " PO abiertas
+    "---------------------------
+    LOOP AT lt_po_raw INTO DATA(ls_po)
+         WHERE matnr = <ls_out>-matnr
+           AND lgort = <ls_out>-lgort.
+
+      DATA(lv_open_po) = ls_po-menge - ls_po-wemng.
+      DATA(lv_po_conv) = lv_open_po.
+
+      READ TABLE lt_uom INTO DATA(ls_uom)
+           WITH KEY matnr = <ls_out>-matnr meinh = ls_po-meins.
+
+      IF sy-subrc = 0 AND ls_uom-umrez > 0 AND ls_uom-umren > 0.
+        lv_po_conv = lv_open_po * ls_uom-umrez / ls_uom-umren.
+      ENDIF.
+
+      <ls_out>-po_qty += lv_po_conv.
+    ENDLOOP.
+
+    "---------------------------
+    " STO — SOLO si el LGORT de la fila = LGORT de picking
+    "           del RAUBE del propio material de la fila
+    "           para el centro (p_werks)
+    "---------------------------
+
+    " Resolver el LGORT de picking del RAUBE de ESTA fila en ESTE centro
+    READ TABLE lt_tvkol INTO DATA(ls_tv)
+         WITH KEY vstel = p_werks
+                  werks = p_werks
+                  raube = <ls_out>-raube.
+    IF sy-subrc = 0 AND ls_tv-lgort = <ls_out>-lgort.
+      " Solo el almacén de picking recibe STO
+      LOOP AT lt_sto_raw INTO DATA(ls_sto)
+           WHERE matnr = <ls_out>-matnr.
+
+        DATA(lv_open_sto) = ls_sto-menge - ls_sto-glmng.
+        DATA(lv_sto_conv) = lv_open_sto.
+
+        READ TABLE lt_uom INTO ls_uom
+             WITH KEY matnr = <ls_out>-matnr meinh = ls_sto-meins.
+
+        IF sy-subrc = 0 AND ls_uom-umrez > 0 AND ls_uom-umren > 0.
+          lv_sto_conv = lv_open_sto * ls_uom-umrez / ls_uom-umren.
         ENDIF.
-        " Convertir de UM de la PO -> MEINS (unidad base del material)
-        IF <r>-meins IS NOT INITIAL AND <r>-meins <> <ls_out>-base_unit.
-          CALL FUNCTION 'MD_CONVERT_MATERIAL_UNIT'
-            EXPORTING
-              i_matnr              = <ls_out>-matnr
-              i_in_me              = <r>-meins
-              i_out_me             = <ls_out>-base_unit
-              i_menge              = lv_open_po
-            IMPORTING
-              e_menge              = lv_open_meins
-            EXCEPTIONS
-              error_in_application = 1
-              error                = 2
-              OTHERS               = 3.
-          IF sy-subrc <> 0.
-            " Fallback conservador: sumar sin conversión (equivalencia 1:1)
-            lv_open_meins = lv_open_po.
-          ENDIF.
-        ELSE.
-          lv_open_meins = lv_open_po.
-        ENDIF.
-
-        lv_total_open += lv_open_meins.
-
+        <ls_out>-sto_qty += lv_sto_conv.
       ENDLOOP.
-
-      lv_po = lv_total_open.
-
-    ENDIF.
-
-*    " PO pendientes por recibir (excl. STO si tu sistema los separa)
-*    lv_po  = gs_mrp_detail-pur_orders.
-
-*    " Entregas abiertas (sin PGI)
-*    lv_dlv = gs_mrp_detail-delivery.
-*    " Ahora hay que buscar las entregas por almacen
-    SELECT SUM( lgmng )
-      FROM lips
-      INTO @lv_dlv
-        WHERE matnr = @<ls_out>-matnr
-      AND lgort = @<ls_out>-lgort
-      AND wbsta = 'A'.
-    IF sy-subrc <> 0 OR lv_dlv IS INITIAL.
-      lv_dlv = 0.
-    ENDIF.
-
-    " Verificamos que el Almacen sea el del Picking
-
-    CLEAR: lt_ekpo_rows, lv_open_po, lv_open_meins, lv_total_open, lv_so.
-
-    SELECT SINGLE lgort
-      INTO @DATA(lv_matlgort)
-      FROM tvkol
-      WHERE vstel = @p_werks
-        AND werks = @p_werks
-        AND raube = @<ls_out>-raube.
-
-    IF lv_matlgort = <ls_out>-lgort AND sy-subrc = 0.
-
-*    " STO (traslados). En tu landscape puede estar en uno de estos:
-*    lv_sto = gs_mrp_detail-stk_trnf_rel.
-
-      SELECT
-            ekko~ebeln,
-            ekpo~ebelp,
-            ekpo~meins,
-            eket~menge,
-            eket~wemng,
-            eket~glmng
-        FROM ekko
-        INNER JOIN ekpo
-           ON ekpo~ebeln = ekko~ebeln
-        INNER JOIN eket
-           ON eket~ebeln = ekpo~ebeln
-          AND eket~ebelp = ekpo~ebelp
-        INTO TABLE @lt_ekpo_rows
-        WHERE ekko~bstyp = 'F'                 " Pedido de compra
-          AND ekko~bsakz = 'T'                 " Traslado
-          AND ekko~reswk = @p_werks             " Suministrador = CD01
-          AND ekpo~loekz = @space              " Posición no borrada
-          AND ekpo~matnr = @<ls_out>-matnr
-          AND eket~menge > eket~glmng.         " Pendiente de entrega
-
-      IF lt_ekpo_rows IS INITIAL.
-
-        lv_sto = 0.
-
-      ELSE.
-
-        "---- Sumar pendiente en MEINS (MARA-MEINS)
-        LOOP AT lt_ekpo_rows ASSIGNING FIELD-SYMBOL(<r2>).
-          " Open por línea (protección contra negativos)
-          lv_open_po = <r2>-menge - <r2>-glmng.
-          IF lv_open_po <= 0.
-            CONTINUE.
-          ENDIF.
-
-          " Convertir de UM de la PO -> MEINS
-          IF <r2>-meins IS NOT INITIAL AND <r2>-meins <> <ls_out>-base_unit.
-            CALL FUNCTION 'MD_CONVERT_MATERIAL_UNIT'
-              EXPORTING
-                i_matnr              = <ls_out>-matnr
-                i_in_me              = <r2>-meins
-                i_out_me             = <ls_out>-base_unit
-                i_menge              = lv_open_po
-              IMPORTING
-                e_menge              = lv_open_meins
-              EXCEPTIONS
-                error_in_application = 1
-                error                = 2
-                OTHERS               = 3.
-            IF sy-subrc <> 0.
-              " Fallback: sumar sin conversión si falla
-              lv_open_meins = lv_open_po.
-            ENDIF.
-          ELSE.
-            lv_open_meins = lv_open_po.
-          ENDIF.
-
-          lv_total_open += lv_open_meins.
-        ENDLOOP.
-
-        lv_sto = lv_total_open.
-
-      ENDIF.
-
-      "-----------------------------------------------------------------*
-      " 4) SO_QTY desde VBAP/VBEP: SUM( VBEP-ORDQTY_BU ) en UM base
-      "      Ítems del material y centro con estado de entrega A/B
-      "-----------------------------------------------------------------*
-      SELECT SUM( v~ordqty_bu )
-        INTO @lv_so
-        FROM vbap AS a
-        INNER JOIN vbep AS v
-                ON v~vbeln = a~vbeln
-               AND v~posnr = a~posnr
-       WHERE a~matnr = @<ls_out>-matnr      " material de la fila
-         AND a~werks = @p_werks             " centro del reporte
-         AND a~lfsta IN ( 'A', 'B' ).       " no entregado / parcialmente entregado
-
-      IF sy-subrc <> 0 OR lv_so IS INITIAL.
-        lv_so = 0.
-      ENDIF.
-
     ELSE.
-
-      lv_sto = 0.
-      lv_so = 0.
-
+      " No coincide con el almacén de picking del RAUBE → 0
+      <ls_out>-sto_qty = 0.
     ENDIF.
 
 
 
-    "-----------------------------------------------------------------*
-    " 5) Asignar buckets a la fila y calcular QTY_AVAIL
-    "-----------------------------------------------------------------*
-    <ls_out>-po_qty    = lv_po.
-    <ls_out>-sto_qty   = lv_sto.
-    <ls_out>-so_qty    = lv_so.
-    <ls_out>-deliv_qty = lv_dlv.
-
-    <ls_out>-qty_avail = <ls_out>-qty_on_hand - <ls_out>-deliv_qty.
-*    IF <ls_out>-qty_avail < 0.
-*      <ls_out>-qty_avail = 0. " por seguridad
-*    ENDIF.
-
-    CLEAR: lv_knumh, ls_konp.
-    <ls_out>-reg_price = 0.
-
-    "---------------------------------------------------------------*
-    " 1) Buscar en A073 el registro de condición VKP0 válido
-    "---------------------------------------------------------------*
-    SELECT SINGLE knumh
-      INTO @lv_knumh
-      FROM a073
-     WHERE kappl =  'V'
-       AND kschl =  'VKP0'
-       AND vkorg =  @p_vkorg
-       AND vtweg =  @p_vtweg
-       AND matnr =  @<ls_out>-matnr
-       AND vrkme =  @<ls_out>-base_unit
-       AND datab <= @p_prdat
-       AND datbi >= @p_prdat.
-
-    IF sy-subrc <> 0.
-      " Sin registro en A073 → precio = 0
-      <ls_out>-reg_price = 0.
-    ELSE.
-
-      "---------------------------------------------------------------*
-      " 2) Ahora con el KNUMH, buscar el KBETR en KONP
-      "---------------------------------------------------------------*
-      SELECT SINGLE kbetr
-        FROM konp
-        INTO @lv_kbetr
-       WHERE knumh = @lv_knumh
-         AND kappl = 'V'
-         AND kschl = 'VKP0'
-         AND loevm_ko = ''.
-
-      IF sy-subrc <> 0.
-        <ls_out>-reg_price = 0.
-      ELSE.
-        <ls_out>-reg_price = lv_kbetr.
-      ENDIF.
-
+    "---------------------------
+    " Entregas LIPS
+    "---------------------------
+    READ TABLE lt_deliv INTO DATA(ls_deliv)
+         WITH KEY matnr = <ls_out>-matnr
+                  lgort = <ls_out>-lgort.
+    IF sy-subrc = 0.
+      <ls_out>-deliv_qty = ls_deliv-deliv_qty.
     ENDIF.
 
-*  Paso 4: Cálculo de TOTAL_COST y TOTAL_SALES
-    <ls_out>-total_cost = <ls_out>-qty_avail * <ls_out>-cost.
+    "---------------------------
+    " SO abiertas
+    "---------------------------
+    READ TABLE lt_so INTO DATA(ls_so)
+         WITH KEY matnr = <ls_out>-matnr.
+    IF sy-subrc = 0.
+      <ls_out>-so_qty = ls_so-so_qty.
+    ENDIF.
+
+    "---------------------------
+    " Precio VKP0
+    "---------------------------
+    READ TABLE lt_price INTO DATA(ls_price)
+         WITH KEY matnr = <ls_out>-matnr
+                  vrkme = <ls_out>-base_unit.
+    IF sy-subrc = 0.
+      <ls_out>-reg_price = ls_price-kbetr.
+    ENDIF.
+
+    "---------------------------
+    " Cálculos finales
+    "---------------------------
+    <ls_out>-qty_avail   = <ls_out>-qty_on_hand - <ls_out>-deliv_qty.
+    <ls_out>-total_cost  = <ls_out>-qty_avail * <ls_out>-cost.
     <ls_out>-total_sales = <ls_out>-qty_avail * <ls_out>-reg_price.
 
   ENDLOOP.
